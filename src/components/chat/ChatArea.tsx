@@ -207,8 +207,8 @@ export function ChatArea({
 
   // Get conversation display info
   const displayName = conversation?.isGroup
-    ? conversation.groupName
-    : conversation?.otherUser?.name || "Loading...";
+    ? (conversation.groupName || "Group")
+    : (conversation?.otherUser?.name || "Loading...");
   const displayImage = conversation?.isGroup
     ? undefined
     : conversation?.otherUser?.imageUrl;
