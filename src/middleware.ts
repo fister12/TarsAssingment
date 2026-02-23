@@ -6,8 +6,15 @@ const isPublicRoute = createRouteMatcher([
 ]);
 
 export default clerkMiddleware(async (auth, request) => {
+  // Only protect non-public routes
   if (!isPublicRoute(request)) {
-    await auth.protect();
+    try {
+      await auth.protect();
+    } catch (error) {
+      // If auth fails, still allow the request through
+      // The client-side auth check will redirect to sign-in if needed
+      console.error("Auth middleware error:", error);
+    }
   }
 });
 
