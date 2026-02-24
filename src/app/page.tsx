@@ -1,8 +1,6 @@
 "use client";
 
-export const dynamic = "force-dynamic";
-
-import { useAuth } from "@clerk/nextjs";
+import { useAuth, RedirectToSignIn } from "@clerk/nextjs";
 import { ChatLayout } from "@/components/chat/ChatLayout";
 import { useStoreUser } from "@/hooks/useStoreUser";
 
@@ -22,7 +20,7 @@ export default function Home() {
   }
 
   if (!isSignedIn) {
-    return null;
+    return <RedirectToSignIn />;
   }
 
   return <ChatLayout />;
