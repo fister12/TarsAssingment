@@ -33,7 +33,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 
-const REACTION_EMOJIS = ["👍", "❤️", "😂", "😮", "😢"];
+const REACTION_EMOJIS = ["👍", "❤️", "😂", "😮", "😢" , "😃"];
 
 interface ChatAreaProps {
   currentUser: Doc<"users">;
@@ -287,7 +287,7 @@ export function ChatArea({
               </div>
             ) : messages.length === 0 ? (
               // Empty state
-              <div className="flex flex-1 flex-col items-center justify-center py-20 text-center">
+              <div className="flex flex-1 flex-col items-center justify-center py-20 text-right">
                 <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
                   <Send className="h-7 w-7 text-muted-foreground" />
                 </div>
@@ -338,180 +338,172 @@ export function ChatArea({
                             </p>
                           )}
 
-                        <div className="flex items-center gap-1">
-                          {/* Message actions */}
-                          {isOwn && !message.isDeleted && (
-                            <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-6 w-6"
-                                  >
-                                    <MoreVertical className="h-3 w-3" />
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent>
-                                  <DropdownMenuItem
-                                    onClick={() =>
-                                      handleDeleteMessage(message._id)
-                                    }
-                                    className="text-destructive"
-                                  >
-                                    <Trash2 className="mr-2 h-4 w-4" />
-                                    Delete message
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            </div>
-                          )}
-
-                          {/* Message bubble */}
-                          <div
-                            className={`rounded-2xl px-3 py-2 ${
-                              message.isDeleted
-                                ? "bg-muted italic text-muted-foreground"
-                                : isOwn
-                                ? "bg-primary text-primary-foreground"
-                                : "bg-muted"
-                            }`}
-                          >
-                            {message.isDeleted ? (
-                              <p className="text-sm">
-                                This message was deleted
-                              </p>
-                            ) : (
-                              <p className="text-sm whitespace-pre-wrap break-words">
-                                {message.content}
-                              </p>
+                        <div>
+                          <div className="flex items-end gap-1">
+                            {/* Message actions */}
+                            {isOwn && !message.isDeleted && (
+                              <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-6 w-6"
+                                    >
+                                      <MoreVertical className="h-3 w-3" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent>
+                                    <DropdownMenuItem
+                                      onClick={() =>
+                                        handleDeleteMessage(message._id)
+                                      }
+                                      className="text-destructive"
+                                    >
+                                      <Trash2 className="mr-2 h-4 w-4" />
+                                      Delete message
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              </div>
                             )}
-                            <p
-                              className={`text-[10px] mt-0.5 ${
+
+                            {/* Message bubble */}
+                            <div
+                              className={`rounded-2xl px-3 py-2 ${
                                 message.isDeleted
-                                  ? "text-muted-foreground/70"
+                                  ? "bg-muted italic text-muted-foreground"
                                   : isOwn
-                                  ? "text-primary-foreground/70"
-                                  : "text-muted-foreground"
+                                  ? "bg-primary text-primary-foreground"
+                                  : "bg-muted"
                               }`}
                             >
-                              {formatMessageTime(message._creationTime)}
-                            </p>
+                              {message.isDeleted ? (
+                                <p className="text-sm">
+                                  This message was deleted
+                                </p>
+                              ) : (
+                                <p className="text-sm whitespace-pre-wrap break-words">
+                                  {message.content}
+                                </p>
+                              )}
+                              <p
+                                className={`text-[10px] mt-0.5 ${
+                                  message.isDeleted
+                                    ? "text-muted-foreground/70"
+                                    : isOwn
+                                    ? "text-primary-foreground/70"
+                                    : "text-muted-foreground"
+                                }`}
+                              >
+                                {formatMessageTime(message._creationTime)}
+                              </p>
+                            </div>
+
+                            {/* Reactions display - all in single box */}
+                            {message.reactions && message.reactions.length > 0 && (
+                              <div className="flex items-center rounded-full border border-border bg-background px-2 py-1 gap-0.5">
+                                {Object.entries(
+                                  message.reactions.reduce(
+                                    (acc, r) => {
+                                      acc[r.emoji] = (acc[r.emoji] || 0) + 1;
+                                      return acc;
+                                    },
+                                    {} as Record<string, number>
+                                  )
+                                ).map(([emoji, count]) => {
+                                  const hasReacted = message.reactions?.some(
+                                    (r) =>
+                                      r.emoji === emoji &&
+                                      r.userId === currentUser._id
+                                  );
+                                  return (
+                                    <button
+                                      key={emoji}
+                                      onClick={() =>
+                                        handleToggleReaction(message._id, emoji)
+                                      }
+                                      className="cursor-pointer hover:scale-125 transition-transform"
+                                      title={`${emoji} ${count > 1 ? count : ''}`}
+                                    >
+                                      {emoji}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+
+                            {/* Reaction button */}
+                            {!message.isDeleted && !isOwn && (
+                              <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Popover>
+                                  <PopoverTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-6 w-6"
+                                    >
+                                      <SmilePlus className="h-3 w-3" />
+                                    </Button>
+                                  </PopoverTrigger>
+                                  <PopoverContent className="w-auto p-1">
+                                    <div className="flex gap-1">
+                                      {REACTION_EMOJIS.map((emoji) => (
+                                        <button
+                                          key={emoji}
+                                          onClick={() =>
+                                            handleToggleReaction(
+                                              message._id,
+                                              emoji
+                                            )
+                                          }
+                                          className="rounded p-1 text-lg hover:bg-accent transition-colors"
+                                        >
+                                          {emoji}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </PopoverContent>
+                                </Popover>
+                              </div>
+                            )}
+
+                            {/* Reaction button for own messages */}
+                            {!message.isDeleted && isOwn && (
+                              <div className="opacity-0 group-hover:opacity-100 transition-opacity order-first">
+                                <Popover>
+                                  <PopoverTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-6 w-6"
+                                    >
+                                      <SmilePlus className="h-3 w-3" />
+                                    </Button>
+                                  </PopoverTrigger>
+                                  <PopoverContent className="w-auto p-1">
+                                    <div className="flex gap-1">
+                                      {REACTION_EMOJIS.map((emoji) => (
+                                        <button
+                                          key={emoji}
+                                          onClick={() =>
+                                            handleToggleReaction(
+                                              message._id,
+                                              emoji
+                                            )
+                                          }
+                                          className="rounded p-1 text-lg hover:bg-accent transition-colors"
+                                        >
+                                          {emoji}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </PopoverContent>
+                                </Popover>
+                              </div>
+                            )}
                           </div>
-
-                          {/* Reaction button */}
-                          {!message.isDeleted && !isOwn && (
-                            <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                              <Popover>
-                                <PopoverTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-6 w-6"
-                                  >
-                                    <SmilePlus className="h-3 w-3" />
-                                  </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-auto p-1">
-                                  <div className="flex gap-1">
-                                    {REACTION_EMOJIS.map((emoji) => (
-                                      <button
-                                        key={emoji}
-                                        onClick={() =>
-                                          handleToggleReaction(
-                                            message._id,
-                                            emoji
-                                          )
-                                        }
-                                        className="rounded p-1 text-lg hover:bg-accent transition-colors"
-                                      >
-                                        {emoji}
-                                      </button>
-                                    ))}
-                                  </div>
-                                </PopoverContent>
-                              </Popover>
-                            </div>
-                          )}
-
-                          {/* Reaction button for own messages */}
-                          {!message.isDeleted && isOwn && (
-                            <div className="opacity-0 group-hover:opacity-100 transition-opacity order-first">
-                              <Popover>
-                                <PopoverTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-6 w-6"
-                                  >
-                                    <SmilePlus className="h-3 w-3" />
-                                  </Button>
-                                </PopoverTrigger>
-                                <PopoverContent className="w-auto p-1">
-                                  <div className="flex gap-1">
-                                    {REACTION_EMOJIS.map((emoji) => (
-                                      <button
-                                        key={emoji}
-                                        onClick={() =>
-                                          handleToggleReaction(
-                                            message._id,
-                                            emoji
-                                          )
-                                        }
-                                        className="rounded p-1 text-lg hover:bg-accent transition-colors"
-                                      >
-                                        {emoji}
-                                      </button>
-                                    ))}
-                                  </div>
-                                </PopoverContent>
-                              </Popover>
-                            </div>
-                          )}
                         </div>
-
-                        {/* Reactions display */}
-                        {message.reactions && message.reactions.length > 0 && (
-                          <div
-                            className={`flex flex-wrap gap-1 mt-1 ${
-                              isOwn ? "justify-end" : "ml-3"
-                            }`}
-                          >
-                            {Object.entries(
-                              message.reactions.reduce(
-                                (acc, r) => {
-                                  acc[r.emoji] = (acc[r.emoji] || 0) + 1;
-                                  return acc;
-                                },
-                                {} as Record<string, number>
-                              )
-                            ).map(([emoji, count]) => {
-                              const hasReacted = message.reactions?.some(
-                                (r) =>
-                                  r.emoji === emoji &&
-                                  r.userId === currentUser._id
-                              );
-                              return (
-                                <button
-                                  key={emoji}
-                                  onClick={() =>
-                                    handleToggleReaction(message._id, emoji)
-                                  }
-                                  className={`inline-flex items-center gap-0.5 rounded-full border px-1.5 py-0.5 text-xs transition-colors ${
-                                    hasReacted
-                                      ? "border-primary bg-primary/10"
-                                      : "border-border hover:bg-accent"
-                                  }`}
-                                >
-                                  <span>{emoji}</span>
-                                  <span className="text-muted-foreground">
-                                    {count}
-                                  </span>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
                       </div>
                     </div>
                   </div>
