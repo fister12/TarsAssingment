@@ -18,11 +18,15 @@ export default defineSchema({
   // Conversations (both 1-on-1 and group)
   conversations: defineTable({
     isGroup: v.boolean(),
+    isPrivate: v.optional(v.boolean()),
+    isEphemeral: v.optional(v.boolean()), // Messages auto-delete after 24 hours
     groupName: v.optional(v.string()),
     groupAdmin: v.optional(v.id("users")),
     lastMessageTime: v.optional(v.number()),
     lastMessagePreview: v.optional(v.string()),
-  }).index("by_last_message_time", ["lastMessageTime"]),
+  })
+    .index("by_last_message_time", ["lastMessageTime"])
+    .index("by_ephemeral", ["isEphemeral"]),
 
   // Conversation participants (many-to-many)
   conversationMembers: defineTable({
@@ -40,6 +44,7 @@ export default defineSchema({
     senderId: v.id("users"),
     content: v.string(),
     isDeleted: v.boolean(),
+    expiresAt: v.optional(v.number()), // Timestamp when message should be deleted
     reactions: v.optional(
       v.array(
         v.object({
@@ -48,7 +53,9 @@ export default defineSchema({
         })
       )
     ),
-  }).index("by_conversation", ["conversationId"]),
+  })
+    .index("by_conversation", ["conversationId"])
+    .index("by_expires_at", ["expiresAt"]),
 
   // Typing indicators
   typingIndicators: defineTable({

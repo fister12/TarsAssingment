@@ -6,6 +6,7 @@ export const getOrCreateDM = mutation({
   args: {
     currentUserId: v.id("users"),
     otherUserId: v.id("users"),
+    isEphemeral: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     // Find all conversations where currentUser is a member
@@ -34,6 +35,8 @@ export const getOrCreateDM = mutation({
     // Create new DM conversation
     const conversationId = await ctx.db.insert("conversations", {
       isGroup: false,
+      isPrivate: true,
+      isEphemeral: args.isEphemeral || false,
       lastMessageTime: Date.now(),
       lastMessagePreview: "",
     });
@@ -60,10 +63,13 @@ export const createGroup = mutation({
     creatorId: v.id("users"),
     memberIds: v.array(v.id("users")),
     groupName: v.string(),
+    isEphemeral: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const conversationId = await ctx.db.insert("conversations", {
       isGroup: true,
+      isPrivate: true,
+      isEphemeral: args.isEphemeral || false,
       groupName: args.groupName,
       groupAdmin: args.creatorId,
       lastMessageTime: Date.now(),
@@ -213,5 +219,41 @@ export const markAsRead = mutation({
         lastReadTime: Date.now(),
       });
     }
+  },
+});
+
+// Toggle ephemeral messages for a conversation
+export const toggleEphemeral = mutation({
+  args: {
+    conversationId: v.id("conversations"),
+    userId: v.id("users"),
+  },
+  handler: async (ctx, args) => {
+    const conversation = await ctx.db.get(args.conversationId);
+    if (!conversation) throw new Error("Conversation not found");
+
+    // Check if user is a member (for group conversations, only admin can change this)
+    const membership = await ctx.db
+      .query("conversationMembers")
+      .withIndex("by_conversation_and_user", (q) =>
+        q.eq("conversationId", args.conversationId).eq("userId", args.userId)
+      )
+      .unique();
+
+    if (!membership) {
+      throw new Error("You are not a member of this conversation");
+    }
+
+    // For group convos, only admin can toggle
+    if (conversation.isGroup && conversation.groupAdmin !== args.userId) {
+      throw new Error("Only the group admin can change this setting");
+    }
+
+    // Toggle the ephemeral setting
+    await ctx.db.patch(args.conversationId, {
+      isEphemeral: !conversation.isEphemeral,
+    });
+
+    return !conversation.isEphemeral;
   },
 });

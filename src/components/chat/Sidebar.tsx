@@ -11,7 +11,7 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, Plus, Users, MessageSquare } from "lucide-react";
+import { Search, Plus, Users, MessageSquare, AlertCircle } from "lucide-react";
 import { formatMessageTime } from "@/lib/utils";
 import { CreateGroupDialog } from "./CreateGroupDialog";
 
@@ -231,11 +231,16 @@ export function Sidebar({
                     </div>
                     <div className="flex-1 text-left min-w-0">
                       <div className="flex items-center justify-between">
-                        <p className="text-sm font-medium truncate">
-                          {conv.isGroup
-                            ? conv.groupName
-                            : conv.otherUser?.name || "Unknown"}
-                        </p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium truncate">
+                            {conv.isGroup
+                              ? conv.groupName
+                              : conv.otherUser?.name || "Unknown"}
+                          </p>
+                          {conv.isEphemeral && (
+                            <AlertCircle className="h-3 w-3 text-orange-600 dark:text-orange-400 flex-shrink-0" />
+                          )}
+                        </div>
                         {conv.lastMessageTime && (
                           <span className="text-xs text-muted-foreground whitespace-nowrap ml-2">
                             {formatMessageTime(conv.lastMessageTime)}

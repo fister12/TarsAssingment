@@ -33,7 +33,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 
-const REACTION_EMOJIS = ["👍", "❤️", "😂", "😮", "😢" , "😃"];
+const REACTION_EMOJIS = ["👍", "❤️", "😂", "😮", "😢" , "😅"];
 
 interface ChatAreaProps {
   currentUser: Doc<"users">;
@@ -74,6 +74,7 @@ export function ChatArea({
   const clearTyping = useMutation(api.typing.clearTyping);
   const softDelete = useMutation(api.messages.softDelete);
   const toggleReaction = useMutation(api.messages.toggleReaction);
+  const toggleEphemeral = useMutation(api.conversations.toggleEphemeral);
 
   // Mark conversation as read when opened and when new messages arrive
   useEffect(() => {
@@ -205,6 +206,17 @@ export function ChatArea({
     }
   };
 
+  const handleToggleEphemeral = async () => {
+    try {
+      await toggleEphemeral({ 
+        conversationId, 
+        userId: currentUser._id 
+      });
+    } catch (error) {
+      console.error("Failed to toggle ephemeral:", error);
+    }
+  };
+
   // Get conversation display info
   const displayName = conversation?.isGroup
     ? (conversation.groupName || "Group")
@@ -250,14 +262,36 @@ export function ChatArea({
 
         <div className="flex-1">
           <h3 className="text-sm font-semibold">{displayName}</h3>
-          <p className="text-xs text-muted-foreground">
-            {conversation?.isGroup
-              ? `${memberCount} members`
-              : isOtherOnline
-              ? "Online"
-              : "Offline"}
-          </p>
+          <div className="flex items-center gap-2">
+            <p className="text-xs text-muted-foreground">
+              {conversation?.isGroup
+                ? `${memberCount} members`
+                : isOtherOnline
+                ? "Online"
+                : "Offline"}
+            </p>
+            {conversation?.isEphemeral && (
+              <span className="inline-flex items-center gap-1 text-xs text-orange-600 dark:text-orange-400">
+                <AlertCircle className="h-3 w-3" />
+                Messages disappear
+              </span>
+            )}
+          </div>
         </div>
+
+        {/* Settings dropdown */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon">
+              <MoreVertical className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={handleToggleEphemeral}>
+              {conversation?.isEphemeral ? "Disable" : "Enable"} Disappearing Messages
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {/* Messages */}

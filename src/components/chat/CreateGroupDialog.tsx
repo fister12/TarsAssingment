@@ -35,6 +35,7 @@ export function CreateGroupDialog({
   const [groupName, setGroupName] = useState("");
   const [selectedUsers, setSelectedUsers] = useState<Id<"users">[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [isEphemeral, setIsEphemeral] = useState(false);
 
   const allUsers = useQuery(api.users.listAll, {
     currentUserId: currentUser._id,
@@ -66,6 +67,7 @@ export function CreateGroupDialog({
       creatorId: currentUser._id,
       memberIds: selectedUsers,
       groupName: groupName.trim(),
+      isEphemeral,
     });
 
     onCreated(conversationId);
@@ -73,6 +75,7 @@ export function CreateGroupDialog({
     setGroupName("");
     setSelectedUsers([]);
     setSearchQuery("");
+    setIsEphemeral(false);
   };
 
   return (
@@ -91,6 +94,25 @@ export function CreateGroupDialog({
             value={groupName}
             onChange={(e) => setGroupName(e.target.value)}
           />
+
+          {/* Ephemeral messages toggle */}
+          <div className="flex items-center gap-3 rounded-lg border p-3">
+            <input
+              type="checkbox"
+              id="ephemeral"
+              checked={isEphemeral}
+              onChange={(e) => setIsEphemeral(e.target.checked)}
+              className="h-4 w-4 cursor-pointer"
+            />
+            <div className="flex-1">
+              <label htmlFor="ephemeral" className="text-sm font-medium cursor-pointer">
+                Disappearing Messages
+              </label>
+              <p className="text-xs text-muted-foreground">
+                Messages will be deleted after 24 hours
+              </p>
+            </div>
+          </div>
 
           {/* Selected users */}
           {selectedUsers.length > 0 && (
@@ -151,6 +173,7 @@ export function CreateGroupDialog({
               setGroupName("");
               setSelectedUsers([]);
               setSearchQuery("");
+              setIsEphemeral(false);
             }}
           >
             Cancel

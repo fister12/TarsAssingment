@@ -9,11 +9,21 @@ export const send = mutation({
     content: v.string(),
   },
   handler: async (ctx, args) => {
+    // Get conversation to check if it's ephemeral
+    const conversation = await ctx.db.get(args.conversationId);
+    if (!conversation) throw new Error("Conversation not found");
+
+    // Calculate expiration time (24 hours from now) if ephemeral
+    const expiresAt = conversation.isEphemeral 
+      ? Date.now() + 24 * 60 * 60 * 1000 // 24 hours
+      : undefined;
+
     const messageId = await ctx.db.insert("messages", {
       conversationId: args.conversationId,
       senderId: args.senderId,
       content: args.content,
       isDeleted: false,
+      expiresAt,
       reactions: [],
     });
 
@@ -55,9 +65,16 @@ export const list = query({
       )
       .collect();
 
-    // Enrich messages with sender info
+    const now = Date.now();
+
+    // Enrich messages with sender info and filter out expired messages
     const enrichedMessages = [];
     for (const message of messages) {
+      // Skip expired messages
+      if (message.expiresAt && message.expiresAt < now) {
+        continue;
+      }
+
       const sender = await ctx.db.get(message.senderId);
       enrichedMessages.push({
         ...message,
@@ -114,5 +131,26 @@ export const toggleReaction = mutation({
     }
 
     await ctx.db.patch(args.messageId, { reactions });
+  },
+});
+
+// Clean up expired ephemeral messages (call this periodically or on demand)
+export const cleanupExpiredMessages = mutation({
+  handler: async (ctx) => {
+    const now = Date.now();
+    const expiredMessages = await ctx.db
+      .query("messages")
+      .withIndex("by_expires_at", (q) => q.lt("expiresAt", now))
+      .collect();
+
+    let deletedCount = 0;
+    for (const message of expiredMessages) {
+      if (message.expiresAt && message.expiresAt < now) {
+        await ctx.db.delete(message._id);
+        deletedCount++;
+      }
+    }
+
+    return { deletedCount };
   },
 });
