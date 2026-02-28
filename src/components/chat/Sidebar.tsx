@@ -213,7 +213,7 @@ export function Sidebar({
                   if (!searchQuery.trim()) return true;
                   const name = conv.isGroup
                     ? conv.groupName
-                    : conv.otherUser?.name;
+                    : (conv.otherUser as any)?.name;
                   return name
                     ?.toLowerCase()
                     .includes(searchQuery.toLowerCase());
@@ -236,12 +236,12 @@ export function Sidebar({
                       ) : (
                         <>
                           <Avatar>
-                            <AvatarImage src={conv.otherUser?.imageUrl} />
+                            <AvatarImage src={(conv.otherUser as any)?.imageUrl} />
                             <AvatarFallback>
-                              {conv.otherUser?.name?.charAt(0)?.toUpperCase() || "?"}
+                              {(conv.otherUser as any)?.name?.charAt(0)?.toUpperCase() || "?"}
                             </AvatarFallback>
                           </Avatar>
-                          {conv.otherUser?.isOnline && (
+                          {(conv.otherUser as any)?.isOnline && (
                             <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-background bg-green-500" />
                           )}
                         </>
@@ -253,7 +253,7 @@ export function Sidebar({
                           <p className="text-sm font-medium truncate">
                             {conv.isGroup
                               ? conv.groupName
-                              : conv.otherUser?.name || "Unknown"}
+                              : (conv.otherUser as any)?.name || "Unknown"}
                           </p>
                           {conv.isEphemeral && (
                             <AlertCircle className="h-3 w-3 text-orange-600 dark:text-orange-400 flex-shrink-0" />
