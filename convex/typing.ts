@@ -2,18 +2,17 @@ import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { getAuthenticatedUser, getOptionalUser } from "./helpers";
 
-// Set typing indicator (auth-secured)
+// Set typing indicator
 export const setTyping = mutation({
   args: {
     conversationId: v.id("conversations"),
+    userId: v.id("users"),
   },
   handler: async (ctx, args) => {
-    const user = await getAuthenticatedUser(ctx);
-
     const existing = await ctx.db
       .query("typingIndicators")
       .withIndex("by_conversation_and_user", (q) =>
-        q.eq("conversationId", args.conversationId).eq("userId", user._id)
+        q.eq("conversationId", args.conversationId).eq("userId", args.userId)
       )
       .unique();
 
@@ -24,25 +23,24 @@ export const setTyping = mutation({
     } else {
       await ctx.db.insert("typingIndicators", {
         conversationId: args.conversationId,
-        userId: user._id,
+        userId: args.userId,
         expiresAt,
       });
     }
   },
 });
 
-// Clear typing indicator (auth-secured)
+// Clear typing indicator
 export const clearTyping = mutation({
   args: {
     conversationId: v.id("conversations"),
+    userId: v.id("users"),
   },
   handler: async (ctx, args) => {
-    const user = await getAuthenticatedUser(ctx);
-
     const existing = await ctx.db
       .query("typingIndicators")
       .withIndex("by_conversation_and_user", (q) =>
-        q.eq("conversationId", args.conversationId).eq("userId", user._id)
+        q.eq("conversationId", args.conversationId).eq("userId", args.userId)
       )
       .unique();
 

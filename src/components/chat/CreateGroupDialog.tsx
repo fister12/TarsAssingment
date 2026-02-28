@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useAuth } from "@clerk/nextjs";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { Id, Doc } from "../../../convex/_generated/dataModel";
@@ -36,6 +37,7 @@ export function CreateGroupDialog({
   const [selectedUsers, setSelectedUsers] = useState<Id<"users">[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [isEphemeral, setIsEphemeral] = useState(false);
+  const { isSignedIn, getToken } = useAuth();
 
   const allUsers = useQuery(api.users.listAll, {
     currentUserId: currentUser._id,
@@ -63,18 +65,44 @@ export function CreateGroupDialog({
   const handleCreate = async () => {
     if (!groupName.trim() || selectedUsers.length === 0) return;
 
-    const conversationId = await createGroup({
-      memberIds: selectedUsers,
-      groupName: groupName.trim(),
-      isEphemeral,
-    });
+    try {
+      // Ensure we have a valid auth token
+      if (!isSignedIn) {
+        console.error("User is not signed in");
+        return;
+      }
 
-    onCreated(conversationId);
-    onOpenChange(false);
-    setGroupName("");
-    setSelectedUsers([]);
-    setSearchQuery("");
-    setIsEphemeral(false);
+      // Get a fresh token to ensure it's valid
+      const token = await getToken();
+      if (!token) {
+        console.error("Failed to get auth token");
+        window.location.reload();
+        return;
+      }
+
+      const conversationId = await createGroup({
+        memberIds: selectedUsers,
+        groupName: groupName.trim(),
+        isEphemeral,
+      });
+
+      if (conversationId) {
+        onCreated(conversationId);
+        onOpenChange(false);
+        setGroupName("");
+        setSelectedUsers([]);
+        setSearchQuery("");
+        setIsEphemeral(false);
+      }
+    } catch (error: any) {
+      const errorMsg = error?.message || String(error);
+      console.error("Failed to create group:", errorMsg);
+      
+      if (errorMsg.includes("Not authenticated")) {
+        console.log("Auth token invalid, refreshing session...");
+        window.location.reload();
+      }
+    }
   };
 
   return (

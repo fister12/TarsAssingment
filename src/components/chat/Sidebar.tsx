@@ -53,12 +53,19 @@ export function Sidebar({
   const getOrCreateDM = useMutation(api.conversations.getOrCreateDM);
 
   const handleUserClick = async (userId: Id<"users">) => {
-    const conversationId = await getOrCreateDM({
-      otherUserId: userId,
-    });
-    onSelectConversation(conversationId);
-    setShowUserSearch(false);
-    setSearchQuery("");
+    try {
+      const conversationId = await getOrCreateDM({
+        otherUserId: userId,
+        currentUserId: currentUser._id,
+      });
+      if (conversationId) {
+        onSelectConversation(conversationId);
+        setShowUserSearch(false);
+        setSearchQuery("");
+      }
+    } catch (error) {
+      console.error("Failed to create/get DM:", error);
+    }
   };
 
   const displayUsers = searchQuery.trim() ? searchResults : allUsers;

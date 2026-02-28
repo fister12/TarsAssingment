@@ -74,8 +74,8 @@ export function ChatArea({
 
   // Mark conversation as read when opened and when new messages arrive
   useEffect(() => {
-    markAsRead({ conversationId });
-  }, [conversationId, markAsRead, messages]);
+    markAsRead({ conversationId, userId: currentUser._id });
+  }, [conversationId, markAsRead, messages, currentUser._id]);
 
   // Auto-scroll logic
   const scrollToBottom = useCallback(() => {
@@ -120,14 +120,14 @@ export function ChatArea({
   };
 
   const handleTyping = () => {
-    setTypingMut({ conversationId });
+    setTypingMut({ conversationId, userId: currentUser._id });
 
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
     }
 
     typingTimeoutRef.current = setTimeout(() => {
-      clearTypingMut({ conversationId });
+      clearTypingMut({ conversationId, userId: currentUser._id });
     }, 2000);
   };
 
@@ -138,10 +138,10 @@ export function ChatArea({
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
     }
-    clearTypingMut({ conversationId });
+    clearTypingMut({ conversationId, userId: currentUser._id });
 
     try {
-      await sendMessage({ conversationId, content: text });
+      await sendMessage({ conversationId, content: text, userId: currentUser._id });
     } catch (error) {
       console.error("Failed to send message:", error);
       setSendError("Failed to send message. Click retry to try again.");
@@ -156,7 +156,7 @@ export function ChatArea({
     setSendError(null);
 
     try {
-      await sendMessage({ conversationId, content: text });
+      await sendMessage({ conversationId, content: text, userId: currentUser._id });
     } catch (error) {
       console.error("Retry failed:", error);
       setSendError("Failed to send message. Click retry to try again.");
@@ -166,7 +166,7 @@ export function ChatArea({
 
   const handleDeleteMessage = async (messageId: Id<"messages">) => {
     try {
-      await softDelete({ messageId });
+      await softDelete({ messageId, userId: currentUser._id });
     } catch (error) {
       console.error("Failed to delete:", error);
     }
@@ -177,7 +177,7 @@ export function ChatArea({
     emoji: string
   ) => {
     try {
-      await toggleReaction({ messageId, emoji });
+      await toggleReaction({ messageId, emoji, userId: currentUser._id });
     } catch (error) {
       console.error("Failed to toggle reaction:", error);
     }
@@ -185,7 +185,7 @@ export function ChatArea({
 
   const handleToggleEphemeral = async () => {
     try {
-      await toggleEphemeral({ conversationId });
+      await toggleEphemeral({ conversationId, userId: currentUser._id });
     } catch (error) {
       console.error("Failed to toggle ephemeral:", error);
     }

@@ -2,18 +2,19 @@ import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { getAuthenticatedUser, getOptionalUser } from "./helpers";
 
-// Get or create a 1-on-1 conversation (auth-secured)
+// Get or create a 1-on-1 conversation
 export const getOrCreateDM = mutation({
   args: {
     otherUserId: v.id("users"),
+    currentUserId: v.id("users"),
     isEphemeral: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    const user = await getAuthenticatedUser(ctx);
+    const user = args.currentUserId;
 
     const currentUserMemberships = await ctx.db
       .query("conversationMembers")
-      .withIndex("by_user", (q) => q.eq("userId", user._id))
+      .withIndex("by_user", (q) => q.eq("userId", user))
       .collect();
 
     for (const membership of currentUserMemberships) {
@@ -42,7 +43,7 @@ export const getOrCreateDM = mutation({
 
     await ctx.db.insert("conversationMembers", {
       conversationId,
-      userId: user._id,
+      userId: user,
       lastReadTime: Date.now(),
     });
 
@@ -64,7 +65,8 @@ export const createGroup = mutation({
     isEphemeral: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    const user = await getAuthenticatedUser(ctx);
+    const user = await getOptionalUser(ctx);
+    if (!user) return null; // Not authenticated
 
     const conversationId = await ctx.db.insert("conversations", {
       isGroup: true,
@@ -214,18 +216,17 @@ export const get = query({
   },
 });
 
-// Mark conversation as read (auth-secured)
+// Mark conversation as read
 export const markAsRead = mutation({
   args: {
     conversationId: v.id("conversations"),
+    userId: v.id("users"),
   },
   handler: async (ctx, args) => {
-    const user = await getAuthenticatedUser(ctx);
-
     const membership = await ctx.db
       .query("conversationMembers")
       .withIndex("by_conversation_and_user", (q) =>
-        q.eq("conversationId", args.conversationId).eq("userId", user._id)
+        q.eq("conversationId", args.conversationId).eq("userId", args.userId)
       )
       .unique();
 
@@ -237,21 +238,20 @@ export const markAsRead = mutation({
   },
 });
 
-// Toggle ephemeral messages (auth-secured)
+// Toggle ephemeral messages
 export const toggleEphemeral = mutation({
   args: {
     conversationId: v.id("conversations"),
+    userId: v.id("users"),
   },
   handler: async (ctx, args) => {
-    const user = await getAuthenticatedUser(ctx);
-
     const conversation = await ctx.db.get(args.conversationId);
     if (!conversation) throw new Error("Conversation not found");
 
     const membership = await ctx.db
       .query("conversationMembers")
       .withIndex("by_conversation_and_user", (q) =>
-        q.eq("conversationId", args.conversationId).eq("userId", user._id)
+        q.eq("conversationId", args.conversationId).eq("userId", args.userId)
       )
       .unique();
 
@@ -259,7 +259,7 @@ export const toggleEphemeral = mutation({
       throw new Error("You are not a member of this conversation");
     }
 
-    if (conversation.isGroup && conversation.groupAdmin !== user._id) {
+    if (conversation.isGroup && conversation.groupAdmin !== args.userId) {
       throw new Error("Only the group admin can change this setting");
     }
 

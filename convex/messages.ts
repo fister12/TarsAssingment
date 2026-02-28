@@ -1,22 +1,25 @@
 import { mutation, query, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
-import { getAuthenticatedUser } from "./helpers";
+import { getAuthenticatedUser, getOptionalUser } from "./helpers";
 
-// Send a message (auth-secured: sender derived from token)
+// Send a message
 export const send = mutation({
   args: {
     conversationId: v.id("conversations"),
     content: v.string(),
+    userId: v.id("users"),
   },
   handler: async (ctx, args) => {
-    const user = await getAuthenticatedUser(ctx);
+    const userId = args.userId;
+    const user = await ctx.db.get(userId);
+    if (!user) throw new Error("User not found");
 
     // Verify membership
     const membership = await ctx.db
       .query("conversationMembers")
       .withIndex("by_conversation_and_user", (q) =>
-        q.eq("conversationId", args.conversationId).eq("userId", user._id)
+        q.eq("conversationId", args.conversationId).eq("userId", userId)
       )
       .unique();
     if (!membership)
@@ -31,7 +34,7 @@ export const send = mutation({
 
     const messageId = await ctx.db.insert("messages", {
       conversationId: args.conversationId,
-      senderId: user._id,
+      senderId: userId,
       content: args.content,
       isDeleted: false,
       expiresAt,
@@ -52,7 +55,7 @@ export const send = mutation({
     const typingIndicator = await ctx.db
       .query("typingIndicators")
       .withIndex("by_conversation_and_user", (q) =>
-        q.eq("conversationId", args.conversationId).eq("userId", user._id)
+        q.eq("conversationId", args.conversationId).eq("userId", userId)
       )
       .unique();
 
@@ -100,16 +103,16 @@ export const list = query({
   },
 });
 
-// Soft delete a message (auth-secured)
+// Soft delete a message
 export const softDelete = mutation({
   args: {
     messageId: v.id("messages"),
+    userId: v.id("users"),
   },
   handler: async (ctx, args) => {
-    const user = await getAuthenticatedUser(ctx);
     const message = await ctx.db.get(args.messageId);
     if (!message) throw new Error("Message not found");
-    if (message.senderId !== user._id) {
+    if (message.senderId !== args.userId) {
       throw new Error("You can only delete your own messages");
     }
 
@@ -117,26 +120,26 @@ export const softDelete = mutation({
   },
 });
 
-// Toggle a reaction on a message (auth-secured)
+// Toggle a reaction on a message
 export const toggleReaction = mutation({
   args: {
     messageId: v.id("messages"),
     emoji: v.string(),
+    userId: v.id("users"),
   },
   handler: async (ctx, args) => {
-    const user = await getAuthenticatedUser(ctx);
     const message = await ctx.db.get(args.messageId);
     if (!message) throw new Error("Message not found");
 
     const reactions = message.reactions || [];
     const existingIndex = reactions.findIndex(
-      (r) => r.userId === user._id && r.emoji === args.emoji
+      (r) => r.userId === args.userId && r.emoji === args.emoji
     );
 
     if (existingIndex >= 0) {
       reactions.splice(existingIndex, 1);
     } else {
-      reactions.push({ userId: user._id, emoji: args.emoji });
+      reactions.push({ userId: args.userId, emoji: args.emoji });
     }
 
     await ctx.db.patch(args.messageId, { reactions });
