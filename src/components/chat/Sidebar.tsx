@@ -11,9 +11,10 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, Plus, Users, MessageSquare, AlertCircle } from "lucide-react";
+import { Search, Plus, Users, MessageSquare, AlertCircle, Sun, Moon, Monitor } from "lucide-react";
 import { formatMessageTime } from "@/lib/utils";
 import { CreateGroupDialog } from "./CreateGroupDialog";
+import { useTheme } from "@/app/theme-provider";
 
 interface SidebarProps {
   currentUser: Doc<"users">;
@@ -29,10 +30,14 @@ export function Sidebar({
   const [searchQuery, setSearchQuery] = useState("");
   const [showUserSearch, setShowUserSearch] = useState(false);
   const [showGroupDialog, setShowGroupDialog] = useState(false);
+  const { theme, setTheme } = useTheme();
 
-  const conversations = useQuery(api.conversations.list, {
-    userId: currentUser._id,
-  });
+  const cycleTheme = () => {
+    const next = theme === "light" ? "dark" : theme === "dark" ? "system" : "light";
+    setTheme(next);
+  };
+
+  const conversations = useQuery(api.conversations.list, {});
 
   const searchResults = useQuery(
     api.users.search,
@@ -49,7 +54,6 @@ export function Sidebar({
 
   const handleUserClick = async (userId: Id<"users">) => {
     const conversationId = await getOrCreateDM({
-      currentUserId: currentUser._id,
       otherUserId: userId,
     });
     onSelectConversation(conversationId);
@@ -71,6 +75,20 @@ export function Sidebar({
           </div>
         </div>
         <div className="flex gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={cycleTheme}
+            title={`Theme: ${theme}`}
+          >
+            {theme === "light" ? (
+              <Sun className="h-4 w-4" />
+            ) : theme === "dark" ? (
+              <Moon className="h-4 w-4" />
+            ) : (
+              <Monitor className="h-4 w-4" />
+            )}
+          </Button>
           <Button
             variant="ghost"
             size="icon"

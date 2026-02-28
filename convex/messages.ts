@@ -1,48 +1,58 @@
-import { mutation, query } from "./_generated/server";
+import { mutation, query, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
+import { getAuthenticatedUser } from "./helpers";
 
-// Send a message
+// Send a message (auth-secured: sender derived from token)
 export const send = mutation({
   args: {
     conversationId: v.id("conversations"),
-    senderId: v.id("users"),
     content: v.string(),
   },
   handler: async (ctx, args) => {
-    // Get conversation to check if it's ephemeral
+    const user = await getAuthenticatedUser(ctx);
+
+    // Verify membership
+    const membership = await ctx.db
+      .query("conversationMembers")
+      .withIndex("by_conversation_and_user", (q) =>
+        q.eq("conversationId", args.conversationId).eq("userId", user._id)
+      )
+      .unique();
+    if (!membership)
+      throw new Error("You are not a member of this conversation");
+
     const conversation = await ctx.db.get(args.conversationId);
     if (!conversation) throw new Error("Conversation not found");
 
-    // Calculate expiration time (24 hours from now) if ephemeral
-    const expiresAt = conversation.isEphemeral 
-      ? Date.now() + 24 * 60 * 60 * 1000 // 24 hours
+    const expiresAt = conversation.isEphemeral
+      ? Date.now() + 24 * 60 * 60 * 1000
       : undefined;
 
     const messageId = await ctx.db.insert("messages", {
       conversationId: args.conversationId,
-      senderId: args.senderId,
+      senderId: user._id,
       content: args.content,
       isDeleted: false,
       expiresAt,
       reactions: [],
     });
 
-    // Update conversation preview
-    const sender = await ctx.db.get(args.senderId);
-    const preview = args.content.length > 50 
-      ? args.content.substring(0, 50) + "..." 
-      : args.content;
+    const preview =
+      args.content.length > 50
+        ? args.content.substring(0, 50) + "..."
+        : args.content;
 
     await ctx.db.patch(args.conversationId, {
       lastMessageTime: Date.now(),
-      lastMessagePreview: `${sender?.name}: ${preview}`,
+      lastMessagePreview: `${user.name}: ${preview}`,
     });
 
-    // Remove typing indicator for this user
+    // Remove typing indicator
     const typingIndicator = await ctx.db
       .query("typingIndicators")
       .withIndex("by_conversation_and_user", (q) =>
-        q.eq("conversationId", args.conversationId).eq("userId", args.senderId)
+        q.eq("conversationId", args.conversationId).eq("userId", user._id)
       )
       .unique();
 
@@ -54,88 +64,87 @@ export const send = mutation({
   },
 });
 
-// Get messages for a conversation (real-time via subscription)
+// Paginated message list (newest first, reverse on client for display)
 export const list = query({
-  args: { conversationId: v.id("conversations") },
+  args: {
+    conversationId: v.id("conversations"),
+    paginationOpts: paginationOptsValidator,
+  },
   handler: async (ctx, args) => {
-    const messages = await ctx.db
+    const results = await ctx.db
       .query("messages")
       .withIndex("by_conversation", (q) =>
         q.eq("conversationId", args.conversationId)
       )
-      .collect();
+      .order("desc")
+      .paginate(args.paginationOpts);
 
     const now = Date.now();
+    const enrichedPage = [];
 
-    // Enrich messages with sender info and filter out expired messages
-    const enrichedMessages = [];
-    for (const message of messages) {
-      // Skip expired messages
-      if (message.expiresAt && message.expiresAt < now) {
-        continue;
-      }
+    for (const message of results.page) {
+      if (message.expiresAt && message.expiresAt < now) continue;
 
       const sender = await ctx.db.get(message.senderId);
-      enrichedMessages.push({
+      enrichedPage.push({
         ...message,
         senderName: sender?.name || "Unknown",
         senderImageUrl: sender?.imageUrl || "",
       });
     }
 
-    return enrichedMessages;
+    return {
+      ...results,
+      page: enrichedPage,
+    };
   },
 });
 
-// Soft delete a message
+// Soft delete a message (auth-secured)
 export const softDelete = mutation({
   args: {
     messageId: v.id("messages"),
-    userId: v.id("users"),
   },
   handler: async (ctx, args) => {
+    const user = await getAuthenticatedUser(ctx);
     const message = await ctx.db.get(args.messageId);
     if (!message) throw new Error("Message not found");
-    if (message.senderId !== args.userId) {
+    if (message.senderId !== user._id) {
       throw new Error("You can only delete your own messages");
     }
 
-    await ctx.db.patch(args.messageId, {
-      isDeleted: true,
-    });
+    await ctx.db.patch(args.messageId, { isDeleted: true });
   },
 });
 
-// Toggle a reaction on a message
+// Toggle a reaction on a message (auth-secured)
 export const toggleReaction = mutation({
   args: {
     messageId: v.id("messages"),
-    userId: v.id("users"),
     emoji: v.string(),
   },
   handler: async (ctx, args) => {
+    const user = await getAuthenticatedUser(ctx);
     const message = await ctx.db.get(args.messageId);
     if (!message) throw new Error("Message not found");
 
     const reactions = message.reactions || [];
     const existingIndex = reactions.findIndex(
-      (r) => r.userId === args.userId && r.emoji === args.emoji
+      (r) => r.userId === user._id && r.emoji === args.emoji
     );
 
     if (existingIndex >= 0) {
-      // Remove reaction
       reactions.splice(existingIndex, 1);
     } else {
-      // Add reaction
-      reactions.push({ userId: args.userId, emoji: args.emoji });
+      reactions.push({ userId: user._id, emoji: args.emoji });
     }
 
     await ctx.db.patch(args.messageId, { reactions });
   },
 });
 
-// Clean up expired ephemeral messages (call this periodically or on demand)
-export const cleanupExpiredMessages = mutation({
+// Internal mutation for cron-based cleanup of expired ephemeral messages
+export const cleanupExpiredMessages = internalMutation({
   handler: async (ctx) => {
     const now = Date.now();
     const expiredMessages = await ctx.db

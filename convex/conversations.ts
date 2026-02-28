@@ -1,21 +1,21 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { getAuthenticatedUser, getOptionalUser } from "./helpers";
 
-// Get or create a 1-on-1 conversation between two users
+// Get or create a 1-on-1 conversation (auth-secured)
 export const getOrCreateDM = mutation({
   args: {
-    currentUserId: v.id("users"),
     otherUserId: v.id("users"),
     isEphemeral: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    // Find all conversations where currentUser is a member
+    const user = await getAuthenticatedUser(ctx);
+
     const currentUserMemberships = await ctx.db
       .query("conversationMembers")
-      .withIndex("by_user", (q) => q.eq("userId", args.currentUserId))
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
       .collect();
 
-    // For each conversation, check if it's a DM with the other user
     for (const membership of currentUserMemberships) {
       const conversation = await ctx.db.get(membership.conversationId);
       if (!conversation || conversation.isGroup) continue;
@@ -32,7 +32,6 @@ export const getOrCreateDM = mutation({
       }
     }
 
-    // Create new DM conversation
     const conversationId = await ctx.db.insert("conversations", {
       isGroup: false,
       isPrivate: true,
@@ -43,7 +42,7 @@ export const getOrCreateDM = mutation({
 
     await ctx.db.insert("conversationMembers", {
       conversationId,
-      userId: args.currentUserId,
+      userId: user._id,
       lastReadTime: Date.now(),
     });
 
@@ -57,33 +56,32 @@ export const getOrCreateDM = mutation({
   },
 });
 
-// Create a group conversation
+// Create a group conversation (auth-secured)
 export const createGroup = mutation({
   args: {
-    creatorId: v.id("users"),
     memberIds: v.array(v.id("users")),
     groupName: v.string(),
     isEphemeral: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
+    const user = await getAuthenticatedUser(ctx);
+
     const conversationId = await ctx.db.insert("conversations", {
       isGroup: true,
       isPrivate: true,
       isEphemeral: args.isEphemeral || false,
       groupName: args.groupName,
-      groupAdmin: args.creatorId,
+      groupAdmin: user._id,
       lastMessageTime: Date.now(),
       lastMessagePreview: "",
     });
 
-    // Add creator as member
     await ctx.db.insert("conversationMembers", {
       conversationId,
-      userId: args.creatorId,
+      userId: user._id,
       lastReadTime: Date.now(),
     });
 
-    // Add all other members
     for (const memberId of args.memberIds) {
       await ctx.db.insert("conversationMembers", {
         conversationId,
@@ -96,14 +94,27 @@ export const createGroup = mutation({
   },
 });
 
-// List all conversations for a user with details
+// List all conversations for the authenticated user (optimized N+1)
 export const list = query({
-  args: { userId: v.id("users") },
-  handler: async (ctx, args) => {
+  args: {},
+  handler: async (ctx) => {
+    const user = await getOptionalUser(ctx);
+    if (!user) return [];
+
     const memberships = await ctx.db
       .query("conversationMembers")
-      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .withIndex("by_user", (q) => q.eq("userId", user._id))
       .collect();
+
+    // Cache user lookups to avoid redundant fetches across conversations
+    const userCache = new Map<string, NonNullable<Awaited<ReturnType<typeof ctx.db.get>>>>();
+    const getCachedUser = async (userId: any) => {
+      const key = String(userId);
+      if (userCache.has(key)) return userCache.get(key)!;
+      const u = await ctx.db.get(userId);
+      if (u) userCache.set(key, u);
+      return u;
+    };
 
     const conversations = [];
 
@@ -111,7 +122,6 @@ export const list = query({
       const conversation = await ctx.db.get(membership.conversationId);
       if (!conversation) continue;
 
-      // Get all members of this conversation
       const members = await ctx.db
         .query("conversationMembers")
         .withIndex("by_conversation", (q) =>
@@ -119,55 +129,59 @@ export const list = query({
         )
         .collect();
 
-      // Get member details
       const memberDetails = [];
       for (const member of members) {
-        const user = await ctx.db.get(member.userId);
-        if (user) memberDetails.push(user);
+        const memberUser = await getCachedUser(member.userId);
+        if (memberUser) memberDetails.push(memberUser);
       }
 
-      // Get the other user for DM conversations
       let otherUser = null;
       if (!conversation.isGroup) {
-        const otherMember = members.find((m) => m.userId !== args.userId);
+        const otherMember = members.find((m) => m.userId !== user._id);
         if (otherMember) {
-          otherUser = await ctx.db.get(otherMember.userId);
+          otherUser = await getCachedUser(otherMember.userId);
         }
       }
 
-      // Count unread messages
+      // Optimized: server-side filter instead of loading all messages into handler
       const lastReadTime = membership.lastReadTime || 0;
-      const allMessages = await ctx.db
+      const unreadMessages = await ctx.db
         .query("messages")
         .withIndex("by_conversation", (q) =>
           q.eq("conversationId", membership.conversationId)
         )
+        .filter((q) =>
+          q.and(
+            q.gt(q.field("_creationTime"), lastReadTime),
+            q.neq(q.field("senderId"), user._id)
+          )
+        )
         .collect();
-      
-      const unreadCount = allMessages.filter(
-        (m) => m._creationTime > lastReadTime && m.senderId !== args.userId
-      ).length;
 
       conversations.push({
         ...conversation,
         otherUser,
         members: memberDetails,
-        unreadCount,
+        unreadCount: unreadMessages.length,
         lastReadTime,
       });
     }
 
-    // Sort by last message time (most recent first)
-    conversations.sort((a, b) => (b.lastMessageTime || 0) - (a.lastMessageTime || 0));
+    conversations.sort(
+      (a, b) => (b.lastMessageTime || 0) - (a.lastMessageTime || 0)
+    );
 
     return conversations;
   },
 });
 
-// Get a single conversation with details
+// Get a single conversation with details (auth-secured)
 export const get = query({
-  args: { conversationId: v.id("conversations"), userId: v.id("users") },
+  args: { conversationId: v.id("conversations") },
   handler: async (ctx, args) => {
+    const user = await getOptionalUser(ctx);
+    if (!user) return null;
+
     const conversation = await ctx.db.get(args.conversationId);
     if (!conversation) return null;
 
@@ -180,13 +194,13 @@ export const get = query({
 
     const memberDetails = [];
     for (const member of members) {
-      const user = await ctx.db.get(member.userId);
-      if (user) memberDetails.push(user);
+      const memberUser = await ctx.db.get(member.userId);
+      if (memberUser) memberDetails.push(memberUser);
     }
 
     let otherUser = null;
     if (!conversation.isGroup) {
-      const otherMember = members.find((m) => m.userId !== args.userId);
+      const otherMember = members.find((m) => m.userId !== user._id);
       if (otherMember) {
         otherUser = await ctx.db.get(otherMember.userId);
       }
@@ -200,17 +214,18 @@ export const get = query({
   },
 });
 
-// Mark conversation as read
+// Mark conversation as read (auth-secured)
 export const markAsRead = mutation({
   args: {
     conversationId: v.id("conversations"),
-    userId: v.id("users"),
   },
   handler: async (ctx, args) => {
+    const user = await getAuthenticatedUser(ctx);
+
     const membership = await ctx.db
       .query("conversationMembers")
       .withIndex("by_conversation_and_user", (q) =>
-        q.eq("conversationId", args.conversationId).eq("userId", args.userId)
+        q.eq("conversationId", args.conversationId).eq("userId", user._id)
       )
       .unique();
 
@@ -222,21 +237,21 @@ export const markAsRead = mutation({
   },
 });
 
-// Toggle ephemeral messages for a conversation
+// Toggle ephemeral messages (auth-secured)
 export const toggleEphemeral = mutation({
   args: {
     conversationId: v.id("conversations"),
-    userId: v.id("users"),
   },
   handler: async (ctx, args) => {
+    const user = await getAuthenticatedUser(ctx);
+
     const conversation = await ctx.db.get(args.conversationId);
     if (!conversation) throw new Error("Conversation not found");
 
-    // Check if user is a member (for group conversations, only admin can change this)
     const membership = await ctx.db
       .query("conversationMembers")
       .withIndex("by_conversation_and_user", (q) =>
-        q.eq("conversationId", args.conversationId).eq("userId", args.userId)
+        q.eq("conversationId", args.conversationId).eq("userId", user._id)
       )
       .unique();
 
@@ -244,12 +259,10 @@ export const toggleEphemeral = mutation({
       throw new Error("You are not a member of this conversation");
     }
 
-    // For group convos, only admin can toggle
-    if (conversation.isGroup && conversation.groupAdmin !== args.userId) {
+    if (conversation.isGroup && conversation.groupAdmin !== user._id) {
       throw new Error("Only the group admin can change this setting");
     }
 
-    // Toggle the ephemeral setting
     await ctx.db.patch(args.conversationId, {
       isEphemeral: !conversation.isEphemeral,
     });

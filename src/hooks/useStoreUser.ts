@@ -1,39 +1,35 @@
 "use client";
 
-import { useUser } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { useEffect } from "react";
 
 export function useStoreUser() {
-  const { user, isLoaded } = useUser();
+  const { isLoaded, isSignedIn } = useAuth();
   const storeUser = useMutation(api.users.store);
   const updateOnlineStatus = useMutation(api.users.updateOnlineStatus);
 
   useEffect(() => {
-    if (!isLoaded || !user) return;
+    if (!isLoaded || !isSignedIn) return;
 
-    storeUser({
-      clerkId: user.id,
-      name: user.fullName || user.firstName || "Anonymous",
-      email: user.primaryEmailAddress?.emailAddress || "",
-      imageUrl: user.imageUrl || "",
-    });
+    // Sync user profile from auth token (no client args needed)
+    storeUser({});
 
     // Set online
-    updateOnlineStatus({ clerkId: user.id, isOnline: true });
+    updateOnlineStatus({ isOnline: true });
 
     // Set offline on page unload
     const handleBeforeUnload = () => {
-      updateOnlineStatus({ clerkId: user.id, isOnline: false });
+      updateOnlineStatus({ isOnline: false });
     };
 
-    // Set offline on visibility change
+    // Toggle online status on visibility change
     const handleVisibilityChange = () => {
       if (document.hidden) {
-        updateOnlineStatus({ clerkId: user.id, isOnline: false });
+        updateOnlineStatus({ isOnline: false });
       } else {
-        updateOnlineStatus({ clerkId: user.id, isOnline: true });
+        updateOnlineStatus({ isOnline: true });
       }
     };
 
@@ -44,14 +40,14 @@ export function useStoreUser() {
       window.removeEventListener("beforeunload", handleBeforeUnload);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [isLoaded, user, storeUser, updateOnlineStatus]);
+  }, [isLoaded, isSignedIn, storeUser, updateOnlineStatus]);
 }
 
 export function useCurrentUser() {
-  const { user } = useUser();
+  const { userId } = useAuth();
   const convexUser = useQuery(
     api.users.getByClerkId,
-    user ? { clerkId: user.id } : "skip"
+    userId ? { clerkId: userId } : "skip"
   );
   return convexUser;
 }

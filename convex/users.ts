@@ -1,25 +1,28 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
-// Store or update user profile from Clerk
+// Store or update user profile from auth token (no client args needed)
 export const store = mutation({
-  args: {
-    clerkId: v.string(),
-    name: v.string(),
-    email: v.string(),
-    imageUrl: v.string(),
-  },
-  handler: async (ctx, args) => {
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return null; // Auth token not ready yet, caller will retry
+
+    const clerkId = identity.subject;
+    const name = identity.name ?? "Anonymous";
+    const email = identity.email ?? "";
+    const imageUrl = identity.pictureUrl ?? "";
+
     const existing = await ctx.db
       .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", args.clerkId))
+      .withIndex("by_clerk_id", (q) => q.eq("clerkId", clerkId))
       .unique();
 
     if (existing) {
       await ctx.db.patch(existing._id, {
-        name: args.name,
-        email: args.email,
-        imageUrl: args.imageUrl,
+        name,
+        email,
+        imageUrl,
         isOnline: true,
         lastSeen: Date.now(),
       });
@@ -27,10 +30,10 @@ export const store = mutation({
     }
 
     return await ctx.db.insert("users", {
-      clerkId: args.clerkId,
-      name: args.name,
-      email: args.email,
-      imageUrl: args.imageUrl,
+      clerkId,
+      name,
+      email,
+      imageUrl,
       isOnline: true,
       lastSeen: Date.now(),
     });
@@ -75,14 +78,18 @@ export const search = query({
   },
 });
 
-// Update online status
+// Update online status (auth-secured)
 export const updateOnlineStatus = mutation({
-  args: { clerkId: v.string(), isOnline: v.boolean() },
+  args: { isOnline: v.boolean() },
   handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return; // Silently fail during sign-out / page close
+
     const user = await ctx.db
       .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", args.clerkId))
+      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
       .unique();
+
     if (user) {
       await ctx.db.patch(user._id, {
         isOnline: args.isOnline,

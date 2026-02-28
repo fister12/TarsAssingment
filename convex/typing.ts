@@ -1,45 +1,48 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { getAuthenticatedUser, getOptionalUser } from "./helpers";
 
-// Set typing indicator
+// Set typing indicator (auth-secured)
 export const setTyping = mutation({
   args: {
     conversationId: v.id("conversations"),
-    userId: v.id("users"),
   },
   handler: async (ctx, args) => {
+    const user = await getAuthenticatedUser(ctx);
+
     const existing = await ctx.db
       .query("typingIndicators")
       .withIndex("by_conversation_and_user", (q) =>
-        q.eq("conversationId", args.conversationId).eq("userId", args.userId)
+        q.eq("conversationId", args.conversationId).eq("userId", user._id)
       )
       .unique();
 
-    const expiresAt = Date.now() + 3000; // 3 seconds
+    const expiresAt = Date.now() + 3000;
 
     if (existing) {
       await ctx.db.patch(existing._id, { expiresAt });
     } else {
       await ctx.db.insert("typingIndicators", {
         conversationId: args.conversationId,
-        userId: args.userId,
+        userId: user._id,
         expiresAt,
       });
     }
   },
 });
 
-// Clear typing indicator
+// Clear typing indicator (auth-secured)
 export const clearTyping = mutation({
   args: {
     conversationId: v.id("conversations"),
-    userId: v.id("users"),
   },
   handler: async (ctx, args) => {
+    const user = await getAuthenticatedUser(ctx);
+
     const existing = await ctx.db
       .query("typingIndicators")
       .withIndex("by_conversation_and_user", (q) =>
-        q.eq("conversationId", args.conversationId).eq("userId", args.userId)
+        q.eq("conversationId", args.conversationId).eq("userId", user._id)
       )
       .unique();
 
@@ -49,13 +52,15 @@ export const clearTyping = mutation({
   },
 });
 
-// Get typing indicators for a conversation
+// Get typing indicators for a conversation (auth-secured)
 export const getTyping = query({
   args: {
     conversationId: v.id("conversations"),
-    currentUserId: v.id("users"),
   },
   handler: async (ctx, args) => {
+    const user = await getOptionalUser(ctx);
+    if (!user) return [];
+
     const indicators = await ctx.db
       .query("typingIndicators")
       .withIndex("by_conversation", (q) =>
@@ -67,11 +72,11 @@ export const getTyping = query({
     const activeTypers = [];
 
     for (const indicator of indicators) {
-      if (indicator.userId === args.currentUserId) continue;
+      if (indicator.userId === user._id) continue;
       if (indicator.expiresAt > now) {
-        const user = await ctx.db.get(indicator.userId);
-        if (user) {
-          activeTypers.push({ name: user.name, userId: user._id });
+        const typingUser = await ctx.db.get(indicator.userId);
+        if (typingUser) {
+          activeTypers.push({ name: typingUser.name, userId: typingUser._id });
         }
       }
     }

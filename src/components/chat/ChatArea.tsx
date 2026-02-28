@@ -1,39 +1,24 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
-import { useQuery, useMutation } from "convex/react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useQuery, useMutation, usePaginatedQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { Id, Doc } from "../../../convex/_generated/dataModel";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  ArrowLeft,
   Send,
   ChevronDown,
-  Users,
-  MoreVertical,
-  Trash2,
-  SmilePlus,
+  ChevronUp,
   AlertCircle,
   RefreshCw,
 } from "lucide-react";
-import { formatMessageTime } from "@/lib/utils";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { ChatHeader } from "./ChatHeader";
+import { MessageBubble } from "./MessageBubble";
+import { MessageInput } from "./MessageInput";
 
-const REACTION_EMOJIS = ["👍", "❤️", "😂", "😮", "😢" , "😅"];
+const PAGE_SIZE = 50;
 
 interface ChatAreaProps {
   currentUser: Doc<"users">;
@@ -46,7 +31,6 @@ export function ChatArea({
   conversationId,
   onBack,
 }: ChatAreaProps) {
-  const [messageText, setMessageText] = useState("");
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [showNewMessageButton, setShowNewMessageButton] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -58,28 +42,40 @@ export function ChatArea({
 
   const conversation = useQuery(api.conversations.get, {
     conversationId,
-    userId: currentUser._id,
   });
 
-  const messages = useQuery(api.messages.list, { conversationId });
+  const {
+    results: paginatedResults,
+    status: paginationStatus,
+    loadMore,
+  } = usePaginatedQuery(
+    api.messages.list,
+    { conversationId },
+    { initialNumItems: PAGE_SIZE }
+  );
+
+  // Results come newest-first (desc), reverse for chronological display
+  const messages = useMemo(
+    () => [...paginatedResults].reverse(),
+    [paginatedResults]
+  );
 
   const typingUsers = useQuery(api.typing.getTyping, {
     conversationId,
-    currentUserId: currentUser._id,
   });
 
   const sendMessage = useMutation(api.messages.send);
   const markAsRead = useMutation(api.conversations.markAsRead);
-  const setTyping = useMutation(api.typing.setTyping);
-  const clearTyping = useMutation(api.typing.clearTyping);
+  const setTypingMut = useMutation(api.typing.setTyping);
+  const clearTypingMut = useMutation(api.typing.clearTyping);
   const softDelete = useMutation(api.messages.softDelete);
   const toggleReaction = useMutation(api.messages.toggleReaction);
   const toggleEphemeral = useMutation(api.conversations.toggleEphemeral);
 
   // Mark conversation as read when opened and when new messages arrive
   useEffect(() => {
-    markAsRead({ conversationId, userId: currentUser._id });
-  }, [conversationId, currentUser._id, markAsRead, messages]);
+    markAsRead({ conversationId });
+  }, [conversationId, markAsRead, messages]);
 
   // Auto-scroll logic
   const scrollToBottom = useCallback(() => {
@@ -91,9 +87,8 @@ export function ChatArea({
   }, []);
 
   useEffect(() => {
-    if (messages && messages.length > lastMessageCountRef.current) {
+    if (messages.length > lastMessageCountRef.current) {
       if (isAtBottom) {
-        // Small delay to ensure DOM is updated
         setTimeout(scrollToBottom, 50);
       } else {
         setShowNewMessageButton(true);
@@ -104,16 +99,18 @@ export function ChatArea({
 
   // Initial scroll to bottom
   useEffect(() => {
-    if (messages && messages.length > 0) {
+    if (messages.length > 0) {
       setTimeout(scrollToBottom, 100);
     }
   }, [conversationId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const target = e.currentTarget;
-    const scrollViewport = target.querySelector("[data-radix-scroll-area-viewport]");
+    const scrollViewport = target.querySelector(
+      "[data-radix-scroll-area-viewport]"
+    );
     if (!scrollViewport) return;
-    
+
     const { scrollTop, scrollHeight, clientHeight } = scrollViewport;
     const atBottom = scrollHeight - scrollTop - clientHeight < 50;
     setIsAtBottom(atBottom);
@@ -123,37 +120,28 @@ export function ChatArea({
   };
 
   const handleTyping = () => {
-    setTyping({ conversationId, userId: currentUser._id });
+    setTypingMut({ conversationId });
 
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
     }
 
     typingTimeoutRef.current = setTimeout(() => {
-      clearTyping({ conversationId, userId: currentUser._id });
+      clearTypingMut({ conversationId });
     }, 2000);
   };
 
-  const handleSend = async () => {
-    const text = messageText.trim();
-    if (!text) return;
-
-    setMessageText("");
+  const handleSend = async (text: string) => {
     setSendError(null);
     setFailedMessage(null);
 
-    // Clear typing indicator
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
     }
-    clearTyping({ conversationId, userId: currentUser._id });
+    clearTypingMut({ conversationId });
 
     try {
-      await sendMessage({
-        conversationId,
-        senderId: currentUser._id,
-        content: text,
-      });
+      await sendMessage({ conversationId, content: text });
     } catch (error) {
       console.error("Failed to send message:", error);
       setSendError("Failed to send message. Click retry to try again.");
@@ -168,11 +156,7 @@ export function ChatArea({
     setSendError(null);
 
     try {
-      await sendMessage({
-        conversationId,
-        senderId: currentUser._id,
-        content: text,
-      });
+      await sendMessage({ conversationId, content: text });
     } catch (error) {
       console.error("Retry failed:", error);
       setSendError("Failed to send message. Click retry to try again.");
@@ -180,16 +164,9 @@ export function ChatArea({
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
-
   const handleDeleteMessage = async (messageId: Id<"messages">) => {
     try {
-      await softDelete({ messageId, userId: currentUser._id });
+      await softDelete({ messageId });
     } catch (error) {
       console.error("Failed to delete:", error);
     }
@@ -200,7 +177,7 @@ export function ChatArea({
     emoji: string
   ) => {
     try {
-      await toggleReaction({ messageId, userId: currentUser._id, emoji });
+      await toggleReaction({ messageId, emoji });
     } catch (error) {
       console.error("Failed to toggle reaction:", error);
     }
@@ -208,10 +185,7 @@ export function ChatArea({
 
   const handleToggleEphemeral = async () => {
     try {
-      await toggleEphemeral({ 
-        conversationId, 
-        userId: currentUser._id 
-      });
+      await toggleEphemeral({ conversationId });
     } catch (error) {
       console.error("Failed to toggle ephemeral:", error);
     }
@@ -219,8 +193,8 @@ export function ChatArea({
 
   // Get conversation display info
   const displayName = conversation?.isGroup
-    ? (conversation.groupName || "Group")
-    : (conversation?.otherUser?.name || "Loading...");
+    ? conversation.groupName || "Group"
+    : conversation?.otherUser?.name || "Loading...";
   const displayImage = conversation?.isGroup
     ? undefined
     : conversation?.otherUser?.imageUrl;
@@ -229,76 +203,42 @@ export function ChatArea({
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header */}
-      <div className="flex items-center gap-3 border-b px-4 py-3">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="md:hidden"
-          onClick={onBack}
-        >
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-
-        <div className="relative">
-          {conversation?.isGroup ? (
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground">
-              <Users className="h-5 w-5" />
-            </div>
-          ) : (
-            <>
-              <Avatar>
-                <AvatarImage src={displayImage} />
-                <AvatarFallback>
-                  {displayName.charAt(0).toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
-              {isOtherOnline && (
-                <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-background bg-green-500" />
-              )}
-            </>
-          )}
-        </div>
-
-        <div className="flex-1">
-          <h3 className="text-sm font-semibold">{displayName}</h3>
-          <div className="flex items-center gap-2">
-            <p className="text-xs text-muted-foreground">
-              {conversation?.isGroup
-                ? `${memberCount} members`
-                : isOtherOnline
-                ? "Online"
-                : "Offline"}
-            </p>
-            {conversation?.isEphemeral && (
-              <span className="inline-flex items-center gap-1 text-xs text-orange-600 dark:text-orange-400">
-                <AlertCircle className="h-3 w-3" />
-                Messages disappear
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Settings dropdown */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon">
-              <MoreVertical className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={handleToggleEphemeral}>
-              {conversation?.isEphemeral ? "Disable" : "Enable"} Disappearing Messages
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
+      <ChatHeader
+        displayName={displayName}
+        displayImage={displayImage}
+        isGroup={!!conversation?.isGroup}
+        isOnline={isOtherOnline}
+        memberCount={memberCount}
+        isEphemeral={!!conversation?.isEphemeral}
+        onBack={onBack}
+        onToggleEphemeral={handleToggleEphemeral}
+      />
 
       {/* Messages */}
       <div className="relative flex-1 overflow-hidden" onScroll={handleScroll}>
         <ScrollArea className="h-full" ref={scrollAreaRef}>
           <div className="flex flex-col gap-1 p-4">
-            {messages === undefined ? (
+            {/* Load more button */}
+            {paginationStatus === "CanLoadMore" && (
+              <div className="flex justify-center pb-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => loadMore(PAGE_SIZE)}
+                  className="text-xs text-muted-foreground"
+                >
+                  <ChevronUp className="mr-1 h-3 w-3" />
+                  Load older messages
+                </Button>
+              </div>
+            )}
+            {paginationStatus === "LoadingMore" && (
+              <div className="flex justify-center pb-2">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              </div>
+            )}
+
+            {paginationStatus === "LoadingFirstPage" ? (
               // Loading skeleton
               <div className="space-y-4">
                 {[1, 2, 3, 4, 5].map((i) => (
@@ -321,7 +261,7 @@ export function ChatArea({
               </div>
             ) : messages.length === 0 ? (
               // Empty state
-              <div className="flex flex-1 flex-col items-center justify-center py-20 text-right">
+              <div className="flex flex-1 flex-col items-center justify-center py-20 text-center">
                 <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
                   <Send className="h-7 w-7 text-muted-foreground" />
                 </div>
@@ -339,208 +279,16 @@ export function ChatArea({
                     messages[index - 1].senderId !== message.senderId);
 
                 return (
-                  <div key={message._id} className="group">
-                    <div
-                      className={`flex items-end gap-2 ${
-                        isOwn ? "justify-end" : ""
-                      }`}
-                    >
-                      {!isOwn && (
-                        <div className="w-8">
-                          {showAvatar && (
-                            <Avatar className="h-8 w-8">
-                              <AvatarImage src={message.senderImageUrl} />
-                              <AvatarFallback className="text-xs">
-                                {message.senderName.charAt(0).toUpperCase()}
-                              </AvatarFallback>
-                            </Avatar>
-                          )}
-                        </div>
-                      )}
-
-                      <div
-                        className={`relative max-w-[70%] ${
-                          isOwn ? "order-1" : ""
-                        }`}
-                      >
-                        {/* Sender name for group chats */}
-                        {!isOwn &&
-                          showAvatar &&
-                          conversation?.isGroup && (
-                            <p className="mb-0.5 text-xs font-medium text-muted-foreground ml-3">
-                              {message.senderName}
-                            </p>
-                          )}
-
-                        <div>
-                          <div className="flex items-end gap-1">
-                            {/* Message actions */}
-                            {isOwn && !message.isDeleted && (
-                              <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                                <DropdownMenu>
-                                  <DropdownMenuTrigger asChild>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-6 w-6"
-                                    >
-                                      <MoreVertical className="h-3 w-3" />
-                                    </Button>
-                                  </DropdownMenuTrigger>
-                                  <DropdownMenuContent>
-                                    <DropdownMenuItem
-                                      onClick={() =>
-                                        handleDeleteMessage(message._id)
-                                      }
-                                      className="text-destructive"
-                                    >
-                                      <Trash2 className="mr-2 h-4 w-4" />
-                                      Delete message
-                                    </DropdownMenuItem>
-                                  </DropdownMenuContent>
-                                </DropdownMenu>
-                              </div>
-                            )}
-
-                            {/* Message bubble */}
-                            <div
-                              className={`rounded-2xl px-3 py-2 ${
-                                message.isDeleted
-                                  ? "bg-muted italic text-muted-foreground"
-                                  : isOwn
-                                  ? "bg-primary text-primary-foreground"
-                                  : "bg-muted"
-                              }`}
-                            >
-                              {message.isDeleted ? (
-                                <p className="text-sm">
-                                  This message was deleted
-                                </p>
-                              ) : (
-                                <p className="text-sm whitespace-pre-wrap break-words">
-                                  {message.content}
-                                </p>
-                              )}
-                              <p
-                                className={`text-[10px] mt-0.5 ${
-                                  message.isDeleted
-                                    ? "text-muted-foreground/70"
-                                    : isOwn
-                                    ? "text-primary-foreground/70"
-                                    : "text-muted-foreground"
-                                }`}
-                              >
-                                {formatMessageTime(message._creationTime)}
-                              </p>
-                            </div>
-
-                            {/* Reactions display - all in single box */}
-                            {message.reactions && message.reactions.length > 0 && (
-                              <div className="flex items-center rounded-full border border-border bg-background px-2 py-1 gap-0.5">
-                                {Object.entries(
-                                  message.reactions.reduce(
-                                    (acc, r) => {
-                                      acc[r.emoji] = (acc[r.emoji] || 0) + 1;
-                                      return acc;
-                                    },
-                                    {} as Record<string, number>
-                                  )
-                                ).map(([emoji, count]) => {
-                                  const hasReacted = message.reactions?.some(
-                                    (r) =>
-                                      r.emoji === emoji &&
-                                      r.userId === currentUser._id
-                                  );
-                                  return (
-                                    <button
-                                      key={emoji}
-                                      onClick={() =>
-                                        handleToggleReaction(message._id, emoji)
-                                      }
-                                      className="cursor-pointer hover:scale-125 transition-transform"
-                                      title={`${emoji} ${count > 1 ? count : ''}`}
-                                    >
-                                      {emoji}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            )}
-
-                            {/* Reaction button */}
-                            {!message.isDeleted && !isOwn && (
-                              <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                                <Popover>
-                                  <PopoverTrigger asChild>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-6 w-6"
-                                    >
-                                      <SmilePlus className="h-3 w-3" />
-                                    </Button>
-                                  </PopoverTrigger>
-                                  <PopoverContent className="w-auto p-1">
-                                    <div className="flex gap-1">
-                                      {REACTION_EMOJIS.map((emoji) => (
-                                        <button
-                                          key={emoji}
-                                          onClick={() =>
-                                            handleToggleReaction(
-                                              message._id,
-                                              emoji
-                                            )
-                                          }
-                                          className="rounded p-1 text-lg hover:bg-accent transition-colors"
-                                        >
-                                          {emoji}
-                                        </button>
-                                      ))}
-                                    </div>
-                                  </PopoverContent>
-                                </Popover>
-                              </div>
-                            )}
-
-                            {/* Reaction button for own messages */}
-                            {!message.isDeleted && isOwn && (
-                              <div className="opacity-0 group-hover:opacity-100 transition-opacity order-first">
-                                <Popover>
-                                  <PopoverTrigger asChild>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-6 w-6"
-                                    >
-                                      <SmilePlus className="h-3 w-3" />
-                                    </Button>
-                                  </PopoverTrigger>
-                                  <PopoverContent className="w-auto p-1">
-                                    <div className="flex gap-1">
-                                      {REACTION_EMOJIS.map((emoji) => (
-                                        <button
-                                          key={emoji}
-                                          onClick={() =>
-                                            handleToggleReaction(
-                                              message._id,
-                                              emoji
-                                            )
-                                          }
-                                          className="rounded p-1 text-lg hover:bg-accent transition-colors"
-                                        >
-                                          {emoji}
-                                        </button>
-                                      ))}
-                                    </div>
-                                  </PopoverContent>
-                                </Popover>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                  <MessageBubble
+                    key={message._id}
+                    message={message}
+                    isOwn={isOwn}
+                    showAvatar={showAvatar}
+                    isGroup={!!conversation?.isGroup}
+                    currentUserId={currentUser._id}
+                    onDelete={handleDeleteMessage}
+                    onToggleReaction={handleToggleReaction}
+                  />
                 );
               })
             )}
@@ -610,27 +358,7 @@ export function ChatArea({
       )}
 
       {/* Message input */}
-      <div className="border-t px-4 py-3">
-        <div className="flex items-center gap-2">
-          <Input
-            placeholder="Type a message..."
-            value={messageText}
-            onChange={(e) => {
-              setMessageText(e.target.value);
-              handleTyping();
-            }}
-            onKeyDown={handleKeyDown}
-            className="flex-1"
-          />
-          <Button
-            size="icon"
-            onClick={handleSend}
-            disabled={!messageText.trim()}
-          >
-            <Send className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
+      <MessageInput onSend={handleSend} onTyping={handleTyping} />
     </div>
   );
 }

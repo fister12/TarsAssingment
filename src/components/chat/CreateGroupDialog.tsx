@@ -64,7 +64,6 @@ export function CreateGroupDialog({
     if (!groupName.trim() || selectedUsers.length === 0) return;
 
     const conversationId = await createGroup({
-      creatorId: currentUser._id,
       memberIds: selectedUsers,
       groupName: groupName.trim(),
       isEphemeral,
